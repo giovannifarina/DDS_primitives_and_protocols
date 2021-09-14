@@ -1,0 +1,2 @@
+- Add bettere message hadling in the links
+- Improve logging
