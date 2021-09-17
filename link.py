@@ -140,44 +140,60 @@ class StubbornLink:
         self.pid = fll.pid
         self.sent = []
 
-        stubbornSendingThread = threading.Thread(target=self.starttimer, args=(5, ))  # this thread should die with its parent process
-        stubbornSendingThread.start()
+        # handle timeout events
+        timeoutEventHandlerThread = threading.Thread(target=self.onEventTimeout, args=(5, ))  # this thread should die with its parent process
+        timeoutEventHandlerThread.start()
         
-        getFLDeliveriesThread = threading.Thread(target=self.getFLDeliveries, args=())  # this thread should die with its parent process
-        getFLDeliveriesThread.start()  
+        # handle fll_deliver events
+        fllDeliverEventHandlerThread = threading.Thread(target=self.onEventFllDeliver, args=())  # this thread should die with its parent process
+        fllDeliverEventHandlerThread.start()  
 
-        self.delivered_queue = None   
+        # handle fll_deliver events
+        sendEventHandlerThread = threading.Thread(target=self.onEventSend, args=())  # this thread should die with its parent process
+        sendEventHandlerThread.start()  
+
+        self.deliver_events = None   
+        self.send_events = queue.Queue()
 
 
-    def starttimer(self, seconds : float) -> None:
+    ### EVENT HANDLERS
+    def onEventTimeout(self, seconds : float) -> None:
         while True:
             time.sleep(seconds)
             for pid_receiver, message in self.sent:
                 self.fll.send(pid_receiver, message)
 
-    def getFLDeliveries(self):
+
+    def onEventFllDeliver(self):
         while True:
             #if config['LOG'].getboolean('stubbornlink'):
             #    logger.info('pid:'+self.pid+' - waiting deliveries')
             pid_sender, message = self.fll.delivered_queue.get()
             self.deliver(pid_sender, message)
 
+    def onEventSend(self):
+        while True:
+            pid_receiver,message = self.send_events.get()
+            self.fll.send(pid_receiver,message)
+            self.sent.append((pid_receiver,message))
         
+    # INTERFACES
     def send(self, pid_receiver, message):
         if config['LOG'].getboolean('stubbornlink'):
             logger.info('pid:'+self.pid+' - '+'sl_send: sending '+str(message)+' to '+str(pid_receiver))
-        self.fll.send(pid_receiver,message)
-        self.sent.append((pid_receiver,message))
+        self.send_events.put((pid_receiver, message))
     
     def deliver(self, pid_sender, message):
         if config['LOG'].getboolean('stubbornlink'):
             logger.info('pid:'+self.pid+' - '+'sl_deliver: delivered '+str(message)+' from '+str(pid_sender))
-        if self.delivered_queue != None:
-            self.delivered_queue.put((pid_sender,message))
+        if self.deliver_events != None:
+            self.deliver_events.put((pid_sender,message))
 
-    def getDeliveries(self):
-        self.delivered_queue = queue.Queue()
-        return self.delivered_queue
+    # INTERCONNECTION
+    def getDeliverEvents(self):
+        self.deliver_events = queue.Queue()
+        return self.deliver_events
+
 
 class PerfectLink:
     """
@@ -188,26 +204,47 @@ class PerfectLink:
         self.sl = sl
         self.pid = sl.pid
         self.delivered = []
+
+        self.slDeliverEvents = self.sl.getDeliverEvents()
         
-        getSLDeliveriesThread = threading.Thread(target=self.getSLDeliveries, args=())  # this thread should die with its parent process
-        getSLDeliveriesThread.start()     
+        slDeliverEventHandlerThread = threading.Thread(target=self.onEventSlDeliver, args=())  # this thread should die with its parent process
+        slDeliverEventHandlerThread.start()   
+
+        plSendEventHandlerThread = threading.Thread(target=self.onEventPlSend, args=())  # this thread should die with its parent process
+        plSendEventHandlerThread.start() 
+
+        self.send_events = queue.Queue()
+        self.deliver_events = None
 
 
-    def getSLDeliveries(self):
-        slDeliveriesQueue = self.sl.getDeliveries()
+    # EVENT HANDLERS
+    def onEventSlDeliver(self):  
         while True:
             #if config['LOG'].getboolean('perfectlink'):
             #    logger.info('pid:'+self.pid+' - waiting deliveries')
-            pid_sender_message_tuple = slDeliveriesQueue.get()
+            pid_sender_message_tuple = self.slDeliverEvents.get()
             if pid_sender_message_tuple not in self.delivered:
                 self.delivered.append(pid_sender_message_tuple)
                 self.deliver(pid_sender_message_tuple[0], pid_sender_message_tuple[1])
-        
+
+    def onEventPlSend(self):
+        while True:
+            pid_receiver,message = self.send_events.get()
+            self.sl.send(pid_receiver,message)
+
+    # INTERFACES    
     def send(self, pid_receiver, message):
         if config['LOG'].getboolean('perfectlink'):
             logger.info('pid:'+self.pid+' - '+'pl_send: sending '+str(message)+' to '+str(pid_receiver))
-        self.sl.send(pid_receiver,message)
+        self.send_events.put((pid_receiver,message))
     
     def deliver(self, pid_sender, message):
         if config['LOG'].getboolean('perfectlink'):
             logger.info('pid:'+self.pid+' - '+'pl_deliver: delivered '+str(message)+' from '+str(pid_sender))
+        if self.deliver_events != None:
+            self.deliver_events.put((pid_sender,message))
+
+    # INTERCONNECTION
+    def getDeliverEvents(self):
+        self.deliver_events = queue.Queue()
+        return self.deliver_events
