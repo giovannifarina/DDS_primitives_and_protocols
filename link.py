@@ -9,14 +9,13 @@ import os.path
 
 import logging
 
-# load logging configuration if available
+# LOAD LOGGING CONFIGURATION
 LOG_Enabled = False
 if os.path.isfile('DDS.ini'):
     
     config = configparser.ConfigParser()
     config.read('DDS.ini')
 
-    # logging §TO-CHECK
     logger = logging.getLogger(config['LOG']['name'])
     logger.setLevel(int(config['LOG']['level']))
     fh = logging.FileHandler(config['LOG']['fileName'])
@@ -46,6 +45,7 @@ def recvall(sock):
             break
     return data
 
+
 class FairLossLink:
     """
         # 2.4.2 Fair-Loss Links
@@ -64,7 +64,7 @@ class FairLossLink:
         
         self.to_receive = queue.Queue() # (socket, sourceIP)
         self.to_send = queue.Queue()    # (destIP, messageByte)
-        self.delivered_queue = queue.Queue()  # (pid_source, message)
+        self.deliver_events = None  # (pid_source, message)
         
         linkInThread = threading.Thread(target=self.manage_link_in, args=())  # this thread should die with its parent process
         linkInThread.start()
@@ -75,7 +75,8 @@ class FairLossLink:
         receiveThread = threading.Thread(target=self.receive_message, args=())  # this thread should die with its parent process
         receiveThread.start()
 
-        
+
+    ### LINK MANAGEMENT        
     def manage_link_in(self):
         while True: # if the socket fails, re-open
             try:
@@ -103,7 +104,6 @@ class FairLossLink:
             except Exception as ex: #§TO-DO proper exeception handling, except socket.error:
                 logger.debug('pid:'+self.pid+' - EXCEPTION, '+self.manage_link_out.__name__+str(type(ex))+':'+str(ex)+' - '+str(IpDestionation))
             
-    #§CHECK
     def receive_message(self):
         while True:
             #if LOG_Enabled and config['LOG'].getboolean('fairlosslink'):
@@ -117,6 +117,7 @@ class FairLossLink:
             except Exception as ex: 
                 logger.debug('pid:'+self.pid+' - EXCEPTION, '+self.manage_link_out.__name__+str(type(ex))+':'+str(ex))  
         
+    ### INTERFACES
     def send(self, pid_receiver, message):
         data_to_send = {'msg' : message} #§NOTE message needs to be convertible in JSON
         data_to_send_byte = json.dumps(data_to_send).encode('utf-8')
@@ -127,7 +128,13 @@ class FairLossLink:
     def deliver(self, pid_sender, message):
         if LOG_Enabled and config['LOG'].getboolean('fairlosslink'):
             logger.info('pid:'+self.pid+' - '+'fl_deliver: delivered '+str(message)+' from '+str(pid_sender))
-        self.delivered_queue.put((pid_sender,message))
+        if self.deliver_events != None:
+            self.deliver_events.put((pid_sender,message))
+
+    ### INTERCONNECTION
+    def getDeliverEvents(self):
+        self.deliver_events = queue.Queue()
+        return self.deliver_events
 
 
 class StubbornLink:
@@ -140,8 +147,12 @@ class StubbornLink:
         self.pid = fll.pid
         self.sent = []
 
+        self.fllDeliverEvents = self.fll.getDeliverEvents()
+        self.deliver_events = None   
+        self.send_events = queue.Queue()
+
         # handle timeout events
-        timeoutEventHandlerThread = threading.Thread(target=self.onEventTimeout, args=(5, ))  # this thread should die with its parent process
+        timeoutEventHandlerThread = threading.Thread(target=self.onEventTimeout, args=(10, ))  # this thread should die with its parent process
         timeoutEventHandlerThread.start()
         
         # handle fll_deliver events
@@ -149,11 +160,8 @@ class StubbornLink:
         fllDeliverEventHandlerThread.start()  
 
         # handle fll_deliver events
-        sendEventHandlerThread = threading.Thread(target=self.onEventSend, args=())  # this thread should die with its parent process
+        sendEventHandlerThread = threading.Thread(target=self.onEventFlSend, args=())  # this thread should die with its parent process
         sendEventHandlerThread.start()  
-
-        self.deliver_events = None   
-        self.send_events = queue.Queue()
 
 
     ### EVENT HANDLERS
@@ -168,16 +176,16 @@ class StubbornLink:
         while True:
             #if config['LOG'].getboolean('stubbornlink'):
             #    logger.info('pid:'+self.pid+' - waiting deliveries')
-            pid_sender, message = self.fll.delivered_queue.get()
+            pid_sender, message = self.fllDeliverEvents.get()
             self.deliver(pid_sender, message)
 
-    def onEventSend(self):
+    def onEventFlSend(self):
         while True:
-            pid_receiver,message = self.send_events.get()
+            pid_receiver, message = self.send_events.get()
             self.fll.send(pid_receiver,message)
             self.sent.append((pid_receiver,message))
         
-    # INTERFACES
+    ### INTERFACES
     def send(self, pid_receiver, message):
         if config['LOG'].getboolean('stubbornlink'):
             logger.info('pid:'+self.pid+' - '+'sl_send: sending '+str(message)+' to '+str(pid_receiver))
@@ -189,7 +197,7 @@ class StubbornLink:
         if self.deliver_events != None:
             self.deliver_events.put((pid_sender,message))
 
-    # INTERCONNECTION
+    ### INTERCONNECTION
     def getDeliverEvents(self):
         self.deliver_events = queue.Queue()
         return self.deliver_events
@@ -205,6 +213,8 @@ class PerfectLink:
         self.pid = sl.pid
         self.delivered = []
 
+        self.send_events = queue.Queue()
+        self.deliver_events = None
         self.slDeliverEvents = self.sl.getDeliverEvents()
         
         slDeliverEventHandlerThread = threading.Thread(target=self.onEventSlDeliver, args=())  # this thread should die with its parent process
@@ -213,11 +223,8 @@ class PerfectLink:
         plSendEventHandlerThread = threading.Thread(target=self.onEventPlSend, args=())  # this thread should die with its parent process
         plSendEventHandlerThread.start() 
 
-        self.send_events = queue.Queue()
-        self.deliver_events = None
 
-
-    # EVENT HANDLERS
+    ### EVENT HANDLERS
     def onEventSlDeliver(self):  
         while True:
             #if config['LOG'].getboolean('perfectlink'):
@@ -228,11 +235,14 @@ class PerfectLink:
                 self.deliver(pid_sender_message_tuple[0], pid_sender_message_tuple[1])
 
     def onEventPlSend(self):
-        while True:
-            pid_receiver,message = self.send_events.get()
-            self.sl.send(pid_receiver,message)
+        try:
+            while True:
+                pid_receiver,message = self.send_events.get()
+                self.sl.send(pid_receiver,message)
+        except Exception as ex: 
+            logger.debug('pid:'+self.pid+' - EXCEPTION, '+str(type(ex))+':'+str(ex))
 
-    # INTERFACES    
+    ### INTERFACES    
     def send(self, pid_receiver, message):
         if config['LOG'].getboolean('perfectlink'):
             logger.info('pid:'+self.pid+' - '+'pl_send: sending '+str(message)+' to '+str(pid_receiver))
@@ -244,7 +254,7 @@ class PerfectLink:
         if self.deliver_events != None:
             self.deliver_events.put((pid_sender,message))
 
-    # INTERCONNECTION
+    ### INTERCONNECTION
     def getDeliverEvents(self):
         self.deliver_events = queue.Queue()
         return self.deliver_events

@@ -13,9 +13,9 @@ import configparser
 
 config = configparser.ConfigParser()
 config['LOG'] = {}
-config['LOG']['level'] = str(logging.INFO)
-config['LOG']['fairlosslink'] = 'false'
-config['LOG']['stubbornlink'] = 'false'
+config['LOG']['level'] = str(logging.DEBUG)
+config['LOG']['fairlosslink'] = 'true'
+config['LOG']['stubbornlink'] = 'true'
 config['LOG']['perfectlink'] = 'true'
 config['LOG']['name'] = 'DDS'
 config['LOG']['fileName'] = 'DDS.log'

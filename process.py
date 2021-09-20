@@ -38,7 +38,10 @@ pl = link.PerfectLink(sl)
 
 # PROTOCOL
 
-for t in range(10):
-    time.sleep(3)
-    dest = random.sample(neighborID_to_addr.keys(),1)[0]
-    pl.send(dest,'msg'+str(t))
+for t in range(1):
+    if pid == '0':
+        time.sleep(3)
+        dest = random.sample(neighborID_to_addr.keys(),1)[0]
+        #fll.send(dest,'msg'+str(t))
+        #sl.send(dest,'msg'+str(t))
+        pl.send(dest,'msg'+str(t))
