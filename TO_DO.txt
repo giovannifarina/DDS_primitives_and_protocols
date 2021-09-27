@@ -1,2 +1,1 @@
-- Add bettere message hadling in the links
-- Improve logging
+- Update logging to single DDSLogger import
