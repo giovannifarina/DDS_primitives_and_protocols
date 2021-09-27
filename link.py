@@ -89,7 +89,7 @@ class FairLossLink:
                         conn, addr = s.accept()
                         self.to_receive.put((conn,addr))
             except Exception as ex:
-                logger.debug('pid:'+self.pid+' - EXCEPTION, '+self.manage_link_out.__name__+str(type(ex))+':'+str(ex))
+                logger.debug('pid:'+self.pid+' - EXCEPTION, '+self.manage_link_in.__name__+str(type(ex))+':'+str(ex))
 
 
     def manage_link_out(self):
@@ -100,7 +100,7 @@ class FairLossLink:
                     s.connect((IpDestionation, self.servicePort))
                     s.sendall(message)
                     if LOG_Enabled and config['LOG'].getboolean('fairlosslink'):
-                        logger.info('pid:'+self.pid+' - '+'fl_send: sent '+str(message) +' to '+self.address_to_pid[IpDestionation])
+                        logger.info('pid:'+self.pid+' - '+'fll_send: sent '+str(message) +' to '+self.address_to_pid[IpDestionation])
             except Exception as ex: #§TO-DO proper exeception handling, except socket.error:
                 logger.debug('pid:'+self.pid+' - EXCEPTION, '+self.manage_link_out.__name__+str(type(ex))+':'+str(ex)+' - '+str(IpDestionation))
             
@@ -113,9 +113,9 @@ class FairLossLink:
                 with sock:
                     received_data = recvall(sock)
                     message = json.loads(received_data.decode('utf-8')) #§NOTE what about decoding errors?
-                    self.deliver(self.address_to_pid[addr[0]], message) #§NOTE direct delivery
+                    self.deliver(self.address_to_pid[addr[0]], message['msg']) #§NOTE direct delivery
             except Exception as ex: 
-                logger.debug('pid:'+self.pid+' - EXCEPTION, '+self.manage_link_out.__name__+str(type(ex))+':'+str(ex))  
+                logger.debug('pid:'+self.pid+' - EXCEPTION, '+self.receive_message.__name__+str(type(ex))+':'+str(ex))  
         
     ### INTERFACES
     def send(self, pid_receiver, message):
@@ -123,11 +123,11 @@ class FairLossLink:
         data_to_send_byte = json.dumps(data_to_send).encode('utf-8')
         self.to_send.put((self.pid_to_address[pid_receiver],data_to_send_byte))
         if LOG_Enabled and config['LOG'].getboolean('fairlosslink'):
-            logger.info('pid:'+self.pid+' - '+'ffl_send: sending '+str(message)+' to '+str(pid_receiver))
+            logger.info('pid:'+self.pid+' - '+'fll_send: sending '+str(message)+' to '+str(pid_receiver))
     
     def deliver(self, pid_sender, message):
         if LOG_Enabled and config['LOG'].getboolean('fairlosslink'):
-            logger.info('pid:'+self.pid+' - '+'fl_deliver: delivered '+str(message)+' from '+str(pid_sender))
+            logger.info('pid:'+self.pid+' - '+'fll_deliver: delivered '+str(message)+' from '+str(pid_sender))
         if self.deliver_events != None:
             self.deliver_events.put((pid_sender,message))
 
@@ -152,7 +152,7 @@ class StubbornLink:
         self.send_events = queue.Queue()
 
         # handle timeout events
-        timeoutEventHandlerThread = threading.Thread(target=self.onEventTimeout, args=(10, ))  # this thread should die with its parent process
+        timeoutEventHandlerThread = threading.Thread(target=self.onEventTimeout, args=(30, ))  # this thread should die with its parent process
         timeoutEventHandlerThread.start()
         
         # handle fll_deliver events
@@ -214,6 +214,7 @@ class PerfectLink:
         self.delivered = []
 
         self.send_events = queue.Queue()
+        self.tagged_deliver_events = {}
         self.deliver_events = None
         self.slDeliverEvents = self.sl.getDeliverEvents()
         
@@ -251,10 +252,21 @@ class PerfectLink:
     def deliver(self, pid_sender, message):
         if config['LOG'].getboolean('perfectlink'):
             logger.info('pid:'+self.pid+' - '+'pl_deliver: delivered '+str(message)+' from '+str(pid_sender))
-        if self.deliver_events != None:
+        if isinstance(message,list) and len(message) > 0 and \
+        isinstance(message[0],str) and len(message[0])>7 and message[0][:7] == 'MSGTAG:' \
+        and message[0][7:] in self.tagged_deliver_events:
+            self.tagged_deliver_events[message[0][7:]].put((pid_sender,message))
+        elif self.deliver_events != None:
             self.deliver_events.put((pid_sender,message))
+        # original version
+        #if self.deliver_events != None:
+        #    self.deliver_events.put((pid_sender,message))
 
     ### INTERCONNECTION
     def getDeliverEvents(self):
         self.deliver_events = queue.Queue()
         return self.deliver_events
+
+    def getTaggedDeliverEvents(self, msg_tag : str) -> queue.Queue:
+        self.tagged_deliver_events[msg_tag] = queue.Queue()
+        return self.tagged_deliver_events[msg_tag]
