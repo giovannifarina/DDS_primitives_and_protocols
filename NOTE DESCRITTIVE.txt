@@ -1,4 +1,0 @@
-- Tutti i processi sono in ascolto su una porta prefissata
-- Tutti i processi hanno un uniqueID
-- I processi conoscono il loro vicinato
-- I processi hanno associato UN SOLO indirizzo IP
