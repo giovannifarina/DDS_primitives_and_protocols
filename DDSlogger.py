@@ -19,6 +19,9 @@ if os.path.isfile('DDS.ini'):
     fh = logging.FileHandler(config['LOG']['fileName'])
     logger.addHandler(fh)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
     fh.setFormatter(formatter)
+
+    logger.propagate = False
 
     LOG_Enabled = True
