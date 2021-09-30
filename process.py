@@ -41,12 +41,16 @@ with open('outLinks.txt', 'r') as fd:
 # setting up link
 service_port = 3210
 fll = link.FairLossLink(pid, service_port, neighborID_to_addr)
-sl = link.StubbornLink(fll, 10)
+#sl = link.StubbornLink(fll, 10)
 #pl = link.PerfectLink(sl)
 
 # PROTOCOL
+counter = 0
 while True:
     if pid == '0':
         time.sleep(5)
-        dest = random.sample(neighborID_to_addr.keys(),1)[0]
-        sl.send(dest,['Hello!'])
+        dest = str(counter%len(neighborID_to_addr))
+        fll.send(dest,['Hello!'])
+        #sl.send(dest,['Hello!'])
+        #pl.send(dest,['Hello!'])
+        counter += 1
