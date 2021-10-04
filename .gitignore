@@ -3,3 +3,11 @@ DDS.log
 outLinks.txt
 pid_IPaddr_map.txt
 __pycache__/link.cpython-38.pyc
+*.pyc
+TO_DO.txt
+test.py
+Pieces.txt
+old_codes.py
+notes.txt
+NOTE DESCRITTIVE.txt
+failure_detector.py
