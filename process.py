@@ -40,7 +40,8 @@ with open('outLinks.txt', 'r') as fd:
 
 # setting up link
 service_port = 3210
-fll = link.FairLossLink(pid, service_port, neighborID_to_addr)
+fll = link.FairLossLink_vTCP_simple(pid, service_port, neighborID_to_addr) # Implementation 1 of ffl
+#fll = link.FairLossLink_vTCP_MTC(pid, service_port, neighborID_to_addr, n_threads_in=1, n_threads_out=2) # Implementation 2 of ffl
 #sl = link.StubbornLink(fll, 10)
 #pl = link.PerfectLink(sl)
 
