@@ -6,6 +6,7 @@ import json
 import time
 import sys
 from eventHandler import handleEvents
+from abc import ABC, abstractmethod
 
 from DDSlogger import logger, config
 
@@ -29,10 +30,26 @@ def recvall(sock):
             break
     return data
 
+# abstract class
+class FairLossLink(ABC):
 
-class FairLossLink:
+    @abstractmethod 
+    def send(self, pid_receiver, message):
+        pass
+
+    @abstractmethod 
+    def deliver(self, pid_sender, message):
+        pass
+
+
+class FairLossLink_vTCP_simple(FairLossLink):
     """
         # 2.4.2 Fair-Loss Links
+
+        This implementation relies on TCP sockets and on three threads:
+        1) one that keeps a listening socket open and waits for new connections
+        2) one that take care of receiving sequentially messages from all incoming connections
+        3) ona that transmit all messages enqueued to send
     """
 
     def __init__(self, pid, servicePort : int, dest_addresses : dict) -> None:
@@ -70,8 +87,12 @@ class FairLossLink:
                     while True:
                         sock, addr = s.accept()
                         self.to_receive.put((sock,addr))
+            except socket.error as err:
+                _, _, exc_tb = sys.exc_info()
+                logger.debug('pid:'+self.pid+' - Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(err))+' : '+str(err))
+                continue
             except Exception as ex:
-                exc_type, exc_obj, exc_tb = sys.exc_info()
+                _, _, exc_tb = sys.exc_info()
                 logger.debug('Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(ex))+' : '+str(ex))
 
 
@@ -80,12 +101,19 @@ class FairLossLink:
             ipDestionation, message = self.to_send.get()
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(2) # connect timeout
                     s.connect((ipDestionation, self.servicePort))
+                    s.settimeout(None) # back to a blocking socket
                     s.sendall(message)
                     if config['LOG'].getboolean('fairlosslink'):
                         logger.info('pid:'+self.pid+' - '+'fll_send: sent '+str(message) +' to '+self.address_to_pid[ipDestionation])
+            except socket.error as err:
+                _, _, exc_tb = sys.exc_info()
+                logger.debug('pid:'+self.pid+' - Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(err))+' : '+str(err))
+                continue
             except Exception as ex: #§TO-DO proper exeception handling, except socket.error:
-                logger.debug('pid:'+self.pid+' - EXCEPTION, '+self.manage_link_out.__name__+str(type(ex))+':'+str(ex)+' - '+str(ipDestionation))
+                _, _, exc_tb = sys.exc_info()
+                logger.debug('pid:'+self.pid+' - Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(ex))+' : '+str(ex))
             
     def receive_message(self):
         while True:
@@ -95,9 +123,129 @@ class FairLossLink:
                     received_data = recvall(sock)
                     message = json.loads(received_data.decode('utf-8')) #§NOTE what about decoding errors?
                     self.deliver(self.address_to_pid[addr[0]], message['msg']) #§NOTE direct delivery
+            except socket.error as err:
+                _, _, exc_tb = sys.exc_info()
+                logger.debug('pid:'+self.pid+' - Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(err))+' : '+str(err))
+                continue
             except Exception as ex:
-                exc_type, exc_obj, exc_tb = sys.exc_info()
+                _, _, exc_tb = sys.exc_info()
+                logger.debug('pid:'+self.pid+' - Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(err))+' : '+str(err))
+        
+    ### INTERFACES
+    def send(self, pid_receiver, message):
+        data_to_send = {'msg' : message} #§NOTE message needs to be convertible in JSON
+        data_to_send_byte = json.dumps(data_to_send).encode('utf-8')
+        self.to_send.put((self.pid_to_address[pid_receiver],data_to_send_byte))
+        if config['LOG'].getboolean('fairlosslink'):
+            logger.info('pid:'+self.pid+' - '+'fll_send: sending '+str(message)+' to '+str(pid_receiver))
+    
+    def deliver(self, pid_sender, message):
+        if config['LOG'].getboolean('fairlosslink'):
+            logger.info('pid:'+self.pid+' - '+'fll_deliver: delivered '+str(message)+' from '+str(pid_sender))
+        if self.deliver_events != None:
+            self.deliver_events.put((pid_sender,message))
+
+    ### INTERCONNECTION
+    def getDeliverEvents(self):
+        self.deliver_events = queue.Queue()
+        return self.deliver_events
+        
+
+class FairLossLink_vTCP_MTC(FairLossLink):
+    """
+        # 2.4.2 Fair-Loss Links
+
+        MTC: Multiple Threads Connection
+        This version improves with respect to FairLossLink_vTCP_simple employing multiple threads handling the incoming and outgoing connections
+
+    """
+
+    def __init__(self, pid, servicePort : int, dest_addresses : dict, n_threads_in : int = 1, n_threads_out : int = 1) -> None:
+        """
+        Args:
+            servicePort (int): port for the incoming connections
+            dest_addresses (dict): map pid -> IP address
+            n_threads_in (int): number of threads managing incoming connections
+            n_threads_out (int): number of threads managing outgoing connections
+        """
+        self.pid = pid
+        self.servicePort = servicePort
+        self.pid_to_address = dest_addresses
+        self.address_to_pid = dict((v,k) for k,v in self.pid_to_address.items())
+        
+        self.to_receive = queue.Queue() # (socket, sourceIP)
+        self.to_send = queue.Queue()    # (destIP, messageByte)
+        self.deliver_events = None      # (pid_source, message)
+        
+        linkInThread = threading.Thread(target=self.manage_links_in, args=(n_threads_in,))  # this thread should die with its parent process
+        linkInThread.start()
+
+        self.manage_links_out(n_threads_out)
+        
+
+
+    ### LINK MANAGEMENT        
+    def manage_links_in(self, n_thread : int):
+        # creating multiple threads that handles the incoming connections
+        for i in range(n_thread):
+            receiveThread = threading.Thread(target=self.receive_message, args=())  # this thread should die with its parent process
+            receiveThread.start()
+
+        while True: # if the socket fails, re-open
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s: # TCP socket
+                    s.bind(('', self.servicePort)) # the socket is reachable by any address the machine happens to have.
+                    s.listen(1) # we want it to queue up as many as * connect requests before refusing outside connections. §EDIT
+                    while True:
+                        sock, addr = s.accept()
+                        self.to_receive.put((sock,addr))
+            except socket.error as err:
+                _, _, exc_tb = sys.exc_info()
+                logger.debug('pid:'+self.pid+' - Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(err))+' : '+str(err))
+                continue
+            except Exception as ex:
+                _, _, exc_tb = sys.exc_info()
                 logger.debug('Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(ex))+' : '+str(ex))
+
+
+    def manage_links_out(self, n_thread : int):
+        for i in range(n_thread):
+            sendThread = threading.Thread(target=self.send_message, args=())  # this thread should die with its parent process
+            sendThread.start()
+            
+    def receive_message(self):
+        while True:
+            sock, addr = self.to_receive.get()
+            try:
+                with sock:
+                    received_data = recvall(sock)
+                    message = json.loads(received_data.decode('utf-8')) #§NOTE what about decoding errors?
+                    self.deliver(self.address_to_pid[addr[0]], message['msg']) #§NOTE direct delivery
+            except socket.error as err:
+                _, _, exc_tb = sys.exc_info()
+                logger.debug('pid:'+self.pid+' - Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(err))+' : '+str(err))
+                continue
+            except Exception as ex:
+                _, _, exc_tb = sys.exc_info()
+                logger.debug('Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(ex))+' : '+str(ex))
+
+    def send_message(self):
+        while True:
+            ipDestionation, message = self.to_send.get()
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(2) # connect timeout
+                    s.connect((ipDestionation, self.servicePort))
+                    s.settimeout(None) # back to a blocking socket
+                    s.sendall(message)
+                    if config['LOG'].getboolean('fairlosslink'):
+                        logger.info('pid:'+self.pid+' - '+'fll_send: sent '+str(message) +' to '+self.address_to_pid[ipDestionation])
+            except socket.error as err:
+                _, _, exc_tb = sys.exc_info()
+                logger.debug('pid:'+self.pid+' - Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(err))+' : '+str(err))
+                continue
+            except Exception as ex: #§TO-DO proper exeception handling, except socket.error:
+                logger.debug('pid:'+self.pid+' - EXCEPTION, '+self.manage_link_out.__name__+str(type(ex))+':'+str(ex)+' - '+str(ipDestionation))
         
     ### INTERFACES
     def send(self, pid_receiver, message):
