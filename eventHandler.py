@@ -7,5 +7,5 @@ def handleEvents(eventQueue, handlerFunction):
             e = eventQueue.get()
             handlerFunction(*e)
     except Exception as ex:
-        exc_type, exc_obj, exc_tb = sys.exc_info()
+        _, _, exc_tb = sys.exc_info()
         logger.debug('Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(ex))+' : '+str(ex))
