@@ -11,6 +11,7 @@ from mininet.link import TCLink
 import configparser
 import logging
 
+# logger configuration
 config = configparser.ConfigParser()
 config['LOG'] = {}
 config['LOG']['level'] = str(logging.DEBUG)
@@ -46,9 +47,9 @@ def generateProcessConfigurationFiles(net):
     with open('outLinks.txt', 'w') as fd:
         fd.write('* *\n') # encoding for fully connected communication network
 
-def simpleTest():
+def simpleTest(n_processes):
     "Create and test a simple network"
-    topo = SingleSwitchTopo(n=4)
+    topo = SingleSwitchTopo(n=n_processes)
     net = Mininet(topo=topo, link=TCLink)
     net.start()
     generateProcessConfigurationFiles(net)
@@ -61,5 +62,4 @@ def simpleTest():
 if __name__ == '__main__':
     # Tell mininet to print useful information
     setLogLevel('info')
-    simpleTest()
-    
+    simpleTest(n_processes=5)  
