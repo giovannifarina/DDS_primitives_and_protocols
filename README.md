@@ -44,8 +44,8 @@ The *StubbornLink* class implements a stubborn link abstraction.
 The *PerfectLink* class implements a perfect link abstraction. 
 Notice that the implementation compares messages through the '==' operator. Two messages carrying the same contents are thus assumed equivalent and additional content (e.g. an identifier) could be necessary to distinguish two messages equivalent in contents but semantically different.
 
-#### [DDS_simulation.py](https://github.com/giovannifarina/DDS_primitives_and_protocols/blob/main/DDS_simulation.py)
-The module *DDS_simulation.py* orchestrates the simulation.
+#### [DS_simulation.py](https://github.com/giovannifarina/DDS_primitives_and_protocols/blob/main/DS_simulation.py)
+The module *DS_simulation.py* orchestrates the simulation.
 
 Specifically:
 - it deploys the virtual network via mininet
