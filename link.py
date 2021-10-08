@@ -338,7 +338,7 @@ class PerfectLink:
         self.delivered = []
 
         self.send_events = queue.Queue()
-        self.tagged_deliver_events = {}
+        self.tagged_deliver_events = {} # collect deliver events with a specific message tag
         self.deliver_events = None
         self.slDeliverEvents = self.sl.getDeliverEvents() 
 
@@ -367,10 +367,19 @@ class PerfectLink:
     def deliver(self, pid_sender, message):
         if config['LOG'].getboolean('perfectlink'):
             logger.info('pid:'+self.pid+' - '+'pl_deliver: delivered '+str(message)+' from '+str(pid_sender))
-        if self.deliver_events != None:
+        if len(message) > 1 and isinstance(message[0],str) and message[0][:3] == 'MT:' and message[0] in self.tagged_deliver_events:
+            self.tagged_deliver_events[message[1]].put((pid_sender,message))
+        elif self.deliver_events != None:
             self.deliver_events.put((pid_sender,message))
 
     ### INTERCONNECTION
     def getDeliverEvents(self):
         self.deliver_events = queue.Queue()
         return self.deliver_events
+
+    def getTaggedDeliverEvents(self, msg_tag : str) -> queue.Queue:
+        """
+            msg_tag (str) : get delivery events for a specific message tag (msg_tag DO NOT include the prefix 'MT:')
+        """
+        self.tagged_deliver_events['MT:'+msg_tag] = queue.Queue()
+        return self.tagged_deliver_events['MT:'+msg_tag]
