@@ -41,7 +41,6 @@ class FairLossLink(ABC):
     def deliver(self, pid_sender, message):
         pass
 
-
 class FairLossLink_vTCP_simple(FairLossLink):
     """
         # 2.4.2 Fair-Loss Links
@@ -111,7 +110,7 @@ class FairLossLink_vTCP_simple(FairLossLink):
                 _, _, exc_tb = sys.exc_info()
                 logger.debug('pid:'+self.pid+' - Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(err))+' : '+str(err))
                 continue
-            except Exception as ex: #§TO-DO proper exeception handling, except socket.error:
+            except Exception as ex: 
                 _, _, exc_tb = sys.exc_info()
                 logger.debug('pid:'+self.pid+' - Exception in '+str(sys._getframe(  ).f_code.co_name)+":"+str(exc_tb.tb_lineno)+" - "+str(type(ex))+' : '+str(ex))
             
@@ -150,7 +149,6 @@ class FairLossLink_vTCP_simple(FairLossLink):
         self.deliver_events = queue.Queue()
         return self.deliver_events
         
-
 class FairLossLink_vTCP_MTC(FairLossLink):
     """
         # 2.4.2 Fair-Loss Links
@@ -266,7 +264,6 @@ class FairLossLink_vTCP_MTC(FairLossLink):
         self.deliver_events = queue.Queue()
         return self.deliver_events
 
-
 class StubbornLink:
     """
         2.4.3 Stubborn Links
@@ -326,8 +323,19 @@ class StubbornLink:
         self.deliver_events = queue.Queue()
         return self.deliver_events
 
+# abstract class
+class PerfectLink(ABC):
 
-class PerfectLink:
+    @abstractmethod 
+    def send(self, pid_receiver, message):
+        pass
+
+    @abstractmethod 
+    def deliver(self, pid_sender, message):
+        pass
+
+
+class PerfectLinkOnStubborn(PerfectLink):
     """
     2.4.4 Perfect Links
     """
@@ -368,7 +376,87 @@ class PerfectLink:
         if config['LOG'].getboolean('perfectlink'):
             logger.info('pid:'+self.pid+' - '+'pl_deliver: delivered '+str(message)+' from '+str(pid_sender))
         if len(message) > 1 and isinstance(message[0],str) and message[0][:3] == 'MT:' and message[0] in self.tagged_deliver_events:
-            self.tagged_deliver_events[message[1]].put((pid_sender,message))
+            self.tagged_deliver_events[message[0]].put((pid_sender,message))
+        elif self.deliver_events != None:
+            self.deliver_events.put((pid_sender,message))
+
+    ### INTERCONNECTION
+    def getDeliverEvents(self):
+        self.deliver_events = queue.Queue()
+        return self.deliver_events
+
+    def getTaggedDeliverEvents(self, msg_tag : str) -> queue.Queue:
+        """
+            msg_tag (str) : get delivery events for a specific message tag (msg_tag DO NOT include the prefix 'MT:')
+        """
+        self.tagged_deliver_events['MT:'+msg_tag] = queue.Queue()
+        return self.tagged_deliver_events['MT:'+msg_tag]
+
+
+
+class PerfectLinkPingPong(PerfectLink):
+    """
+        PerfectLink implementation on a Fairloss link, based on ack mechanism to avoid infinite retransmissions
+    """
+
+    def __init__(self, fll : FairLossLink, timeout : int) -> None:
+        self.fll = fll
+        self.pid = fll.pid
+        self.delivered = []
+        self.waitingForAck = []
+
+        self.send_events = queue.Queue()
+        self.tagged_deliver_events = {} # collect deliver events with a specific message tag
+        self.deliver_events = None
+        self.flDeliverEvents = self.fll.getDeliverEvents() 
+
+        # handle timeout events
+        timeoutEventHandlerThread = threading.Thread(target=self.onEventTimeout, args=(timeout, ))  # this thread should die with its parent process
+        timeoutEventHandlerThread.start()
+
+        flDeliverEventHandlerThread = threading.Thread(target=handleEvents, args=(self.flDeliverEvents, self.onEventFlDeliver))
+        flDeliverEventHandlerThread.start()
+
+        plSendEventHandlerThread = threading.Thread(target=handleEvents, args=(self.send_events, self.onEventPlSend))
+        plSendEventHandlerThread.start()
+
+    ### EVENT HANDLERS
+    def onEventTimeout(self, seconds : float) -> None:
+        while True:
+            time.sleep(seconds)
+            for pid_receiver, message in self.waitingForAck:
+                self.fll.send(pid_receiver, message)
+
+
+    def onEventFlDeliver(self, pid_sender, message): 
+        if message[0] == 'pl_ACK':
+            innerMessage = message[1:]
+            pid_sender_message_tuple = (pid_sender, innerMessage)
+            if pid_sender_message_tuple in self.waitingForAck:
+                self.waitingForAck.remove(pid_sender_message_tuple)
+        else:
+            pid_sender_message_tuple = (pid_sender, message)
+            if pid_sender_message_tuple not in self.delivered:
+                self.delivered.append(pid_sender_message_tuple)
+                self.deliver(pid_sender, message)
+            messageToAck = ['pl_ACK'] + message
+            self.fll.send(pid_receiver=pid_sender, message=messageToAck)
+
+    def onEventPlSend(self, pid_receiver, message):
+        self.fll.send(pid_receiver,message)
+        self.waitingForAck.append((pid_receiver, message))
+
+    ### INTERFACES    
+    def send(self, pid_receiver, message):
+        self.send_events.put((pid_receiver,message))
+        if config['LOG'].getboolean('perfectlink'):
+            logger.info('pid:'+self.pid+' - '+'pl_send: sending '+str(message)+' to '+str(pid_receiver))
+    
+    def deliver(self, pid_sender, message):
+        if config['LOG'].getboolean('perfectlink'):
+            logger.info('pid:'+self.pid+' - '+'pl_deliver: delivered '+str(message)+' from '+str(pid_sender))
+        if len(message) > 1 and isinstance(message[0],str) and message[0][:3] == 'MT:' and message[0] in self.tagged_deliver_events:
+            self.tagged_deliver_events[message[0]].put((pid_sender,message))
         elif self.deliver_events != None:
             self.deliver_events.put((pid_sender,message))
 
