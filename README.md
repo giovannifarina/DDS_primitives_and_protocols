@@ -18,7 +18,7 @@ This simulation environment is coded in Python and relies on [Mininet](http://mi
 <!--- - [networkx](https://networkx.org/) Python module (employed in future releases) -->
 - [Mininet](http://mininet.org/)
 
-### [Wiki](https://github.com/giovannifarina/DDS_primitives_and_protocols/wiki)
+# [Wiki](https://github.com/giovannifarina/DDS_primitives_and_protocols/wiki)
 
 
 <!---
