@@ -15,7 +15,7 @@ Part of the framework is based on the book:
 This simulation environment is coded in Python and relies on [Mininet](http://mininet.org/) to setup a virtual network where to deploy distributed protocols. The following dependencies need to be satisfied on the executing machine:
 
 - Python 3
-<!--- - [networkx](https://networkx.org/) Python module (employed in future releases) -->
+- [networkx](https://networkx.org/) Python module (employed in future releases)
 - [Mininet](http://mininet.org/)
 
 # [Wiki](https://github.com/giovannifarina/DDS_primitives_and_protocols/wiki)
