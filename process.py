@@ -1,11 +1,12 @@
 import netifaces
-import link
 import random
 import time
 import os.path
 import configparser
-
 from DDSlogger import logger
+
+import link
+import failure_detector
 
 # HARDWARE DEPENDENT CONFIGURATION
 
@@ -42,10 +43,13 @@ with open('outLinks.txt', 'r') as fd:
 service_port = 3210
 fll = link.FairLossLink_vTCP_simple(pid, service_port, neighborID_to_addr) # Implementation 1 of ffl
 #fll = link.FairLossLink_vTCP_MTC(pid, service_port, neighborID_to_addr, n_threads_in=1, n_threads_out=2) # Implementation 2 of ffl
-sl = link.StubbornLink(fll, 30)
-pl = link.PerfectLink(sl)
+#sl = link.StubbornLink(fll, 30)
+#pl = link.PerfectLinkOnStubborn(sl=sl)
+pl = link.PerfectLinkPingPong(fll, timeout = 5)
+P = failure_detector.PerfectFailureDetector(processes=processes, timeout=15, pl=pl)
 
 # PROTOCOL
+"""
 counter = 0
 while True:
     if pid == '0':
@@ -55,3 +59,4 @@ while True:
         #sl.send(dest,['Hello!'])
         pl.send(dest,['MID:'+str(counter), 'Hello!'])
         counter += 1
+"""
