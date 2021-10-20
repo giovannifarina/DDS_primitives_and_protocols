@@ -6,7 +6,7 @@ import configparser
 from DDSlogger import logger
 
 import link
-#import failure_detector
+import failure_detector
 
 # HARDWARE DEPENDENT CONFIGURATION
 
@@ -58,10 +58,11 @@ fll = link.FairLossLink_vTCP_simple(pid, service_port, neighborID_to_addr) # Imp
 #sl = link.StubbornLink(fll, 30)
 #pl = link.PerfectLinkOnStubborn(sl=sl)
 pl = link.PerfectLinkPingPong(fll, timeout = 5)
-#P = failure_detector.PerfectFailureDetector(processes=processes, timeout=15, pl=pl)
+P = failure_detector.PerfectFailureDetector(processes=processes, timeout=20, pl=pl)
 
 # PROTOCOL
 
+"""
 counter = 0
 while True:
     if pid == '0':
@@ -69,3 +70,4 @@ while True:
             time.sleep(5)
             pl.send(npid,['MID:'+str(counter), 'Hello!'])
         counter += 1
+"""
